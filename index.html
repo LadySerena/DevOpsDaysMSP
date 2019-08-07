@@ -1,0 +1,424 @@
+<!doctype html>
+<html>
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+		<title>Timber!</title>
+
+		<link rel="stylesheet" href="css/reset.css">
+		<link rel="stylesheet" href="css/reveal.css">
+		<link rel="stylesheet" href="css/theme/black.css">
+
+		<!-- Theme used for syntax highlighting of code -->
+		<link rel="stylesheet" href="lib/css/monokai.css">
+
+		<!-- Printing and PDF exports -->
+		<script>
+			var link = document.createElement( 'link' );
+			link.rel = 'stylesheet';
+			link.type = 'text/css';
+			link.href = window.location.search.match( /print-pdf/gi ) ? 'css/print/pdf.css' : 'css/print/paper.css';
+			document.getElementsByTagName( 'head' )[0].appendChild( link );
+		</script>
+	</head>
+	<body>
+		<div class="reveal">
+			<div class="slides">
+				<section>
+					<h3>Timber! Security Logging at UnitedHealth Group</h3>
+					<h4>@SerenaTiede</h4>
+					<aside class="notes">
+						<p>intro bit here</p>
+						<p>
+							Hello everyone, I'm super psyched to be up on stage for the first time. So I'm Serena, and we're going to talk about how UHG does application security logging. I want to thank the organizers for putting devops days minneapolis together.
+						</p>
+					</aside>
+				</section>
+				<section>
+					<h3>Who is Optum</h3>
+					<p>
+						Optum is the health services and innovation company within UnitedHealth Group
+					</p>
+					<aside class="notes">
+						so optum is the health technology and services part of UHG. UnitedHealthcare runs the insurance plans. UnitedHealth Group is the parent company of optum
+
+					</aside>
+				</section>
+				<section>
+					<h3>About Me</h3>
+					<aside class="notes">
+						<p>So I interned at optum in 2016 then started fulltime after i graduated college in 2017. When I started full time I did a 6 month rotation on tier 2 helpdesk and another
+							6 month rotation as a developer/sre. When it came time to final placement I chose to join up with the Ness team that was getting started. My main role is keeping 
+							out kafka platform up and running.
+						</p>
+					</aside>
+				</section>
+				<section>
+					<h3>What Problem am I trying to solve?</h3>
+					<ol>
+						<li>Long log ingest times</li>
+						<li>Inconsistent Log Formats</li>
+						<li>Vendor lock in</li>
+					</ol>
+					<aside class="notes">
+						<p>3 things we're trying to solve</p>
+						<p>log ingestion was pretty slow</p>
+						<p>The logs we got were non standardized</p>
+						<p>We had a commerical logging system setup and it was really hard and slow to get data out of it</p>
+					</aside>
+				</section>
+				<section>
+					<h3>Outline</h3>
+					<ul>
+						<li>Schema</li>
+						<li>Streaming</li>
+						<li>Pain Points and Tips</li>
+					</ul>
+					<aside class="notes">
+						<p>
+							Here's the outline of the talk. Up first we'll talk about why you need a common enterprise wide log event schema. Then we'll dive into 
+							near real time processing of logs. After that I'll go over how a small team of a few people stood everything up and give you some tips and lessons learned.
+						</p>
+					</aside>
+				</section>
+				<section>
+					<section>
+						<h3>8 Required Fields</h3>
+						<ul>
+							<li>device.vendor</li>
+							<li>device.product</li>
+							<li>device.hostname</li>
+							<li>device.ip4</li>
+							<li>timeStamp</li>
+							<li>msg</li>
+							<li>application.id</li>
+							<li>application.name</li>
+						</ul>
+						<aside class="notes">
+							<p>couple notes</p>
+
+							<p>So a security event is something like a user logging in, what was query was ran on database, or what was the api call someone made</p>
+
+							<p>The required fields provide the bare minimum information that your security analysts need to determine what is and isn't malicious</p>
+
+							<p></p>
+							
+							<p>device vendor would be your company if it's an in house app</p> 
+							
+							<p>device product is the name of the app</p>
+							
+							<p>So for our in house stuff the vendor is Optum and for product let's say MyUhc</p>
+					
+							<p>device hostname is the hostname but not localhost</p>
+							
+							<p>device ipv4 we require it in integer format instead of the normal dotted decimal notation. This makes validation easier. An ip address sent cannot be 0.0.0.0 or 127.0.0.1</p>
+
+							<p>timestamp is milliseconds after since the unix epoch. We used to have a lot of non standard timestamp formats and sometimes there wouldn't be a timezone offset, and unix time sidesteps those issues</p>
+
+							<p>message is a human readable string describing what is happening in this event</p>
+
+							<p>
+								Application.id
+								We have an internal database that we use to keep tabs on all applications within UHG it's mainly used for funding and billing but since every
+								application has a specific ID we kinda use that to keep tabs on who is logging to us.
+							</p>
+
+							<p>
+								similiar to application.id "application.name" is the name of your application within your CMDB (config management database)
+							</p>
+						</aside>
+					</section>
+					<section>
+						<h3>Why You Want a Schema</h3>
+						<ul>
+							<li>It's hard to parse a variety of formats</li>
+							<li>Avro gives pretty much free type validation</li>
+							<li>Next to no need for data cleanup</li>
+						</ul>
+						<aside class="notes">
+							<p>now structured logging isn't anything new, but it takes time and specifically intent. when i'm writing my
+							automation tooling i don't think about logging at all. the main thing a schema gives you have an easier time doing
+							analytics</p>
+
+							<p>now given that we're using avro if a message is invalid it won't serialize correctly. this part is kinda a hard sell to application teams.
+							From a security perspective a common schema makes the analytics easier because you've done the data cleanup before ingestion. With application
+							logs one application can be way different than the next and writing a custom parser just doesn't scale. 
+							What the schema tries to do is try to make the data more valuable.
+							</p>
+
+							<p>
+								now please note i said data cleanup and not data quality! We get messages with the minimum fields that were better
+								than the old stuff but we kinda need more info
+							</p>
+						</aside>
+					</section>
+					<section>
+						<h3>How to Sell Your Schema</h3>
+						<ul>
+							<li>Change Policy</li>
+							<li>Give Feedback</li>
+							<li>Have an open Slack/Flowdock Channel</li>
+							<li>Be Patient</li>
+						</ul>
+						<aside class="notes">
+							<p>
+								So one of the perks of being in security is that you can pretty easily change policies. But it's one thing to just say
+								this is how developers need to log, but it can cause friction between development and security groups.
+							</p>
+
+							<p>
+								I'll have a screenshot in the next slide but give people a means to see if their logs meet the schema. Also we got this a lot
+								"have you received our logs" so we have a nice grafana dashboard for that as well
+							</p>
+
+							<p>
+								Specifically at UHG we made a huge change to our logging policy. It takes a little while to get information out to my org's developer community.
+								So we've have an open chat room where people can come in and ask us a questions. We also use github enterprise and we actively ask people to 
+								open issues or send us a pull request for our documentation. 
+							</p>
+							<p>
+							 Again be patient it takes time and energy to change your logging in your code. Also we've had to make some exceptions for people to try to meet 
+							 in the middle. We have to get logs from mainframe applications and it takes a lot of time. We had COBOL developers implement custom string handling
+							 so their logs could be in JSON which is wild to me. A couple fun things I learned from mainframe learned
+							</p>
+						</aside>
+					</section>
+					<section>
+						<h3>Log Validator</h3>
+						<img src="img/validator.png" alt="validator with valid log" title="screenshot of the log validator tool that has successfully validate that the log event conforms to the schema">
+						<aside class="notes">
+							<p>
+								so to help people along the way one of the other devs Kyle Boyer wrote up a nifty little tool that people can use to validate their logs. 
+							</p>
+						</aside>
+					</section>
+					<section>
+						<h3>Grafana Customer View</h3>
+						<img src="img/grafana.png" alt="log totals in grafana" title="grafana graphs showing how many logs have been received within the last hour">
+						<aside class="notes">
+							<p>
+								One thing we get asked about all of the time is "Did you receive my logs"? So having is run a query in elasticsearch would be time consuming from
+								doing development. This dashboard came about because i asked Kyle "hey can your stream emit metrics so we now how much stuff is coming in". Originally
+								those metrics were for operational use but happened to also answer the question "did you get logs"
+							</p>
+
+							<p>
+								Currently we are looking for a way to give some limited access back but it's on the road map for now.
+							</p>
+						</aside>
+					</section>
+				</section>
+				<section>
+					<section>
+						<h3>Why Should You Stream Logs</h3>
+						<ul>
+							<li>
+								get logs off of a compromised endpoint
+							</li>
+							<li>
+								a good way to lower your time to detect issues
+							</li>
+						</ul>
+						<aside class="notes">
+							<p>
+								So beginning our streaming section is why this is actually important. Should the worst happen and an attacker is on your box;
+								You won't be able to stop them from stopping logging but you can get them off the box before the files are deleted.
+							</p>
+
+							<p>
+								Another huge benefit you get security related info faster and lower your time to detection of an incident. We all would like to
+								stop a breach before people's data is compromised. Good guys win and all that jazz
+							</p>
+						</aside>
+					</section>
+					<section>
+						<h3>Kafka</h3>
+						<aside class="notes">
+							<p>
+								We're using kafka which is pretty common for this use case. It's resilient with topic replication with a factor of 3 with a cluster with 5+ nodes.
+								Another nice feature is that the docs are pretty good and a ton of people have written posts on how to operate it. We haven't hit anything super interesting
+								from a scale perspective yet but we should be hitting more data down the line. We currently are running kafka on virtual machines but we'll migrate to baremetal 
+								in the future once we start hitting scaling issues.
+							</p>
+						</aside>
+					</section>
+					<section>
+						<h3>How do people actually send logs</h3>
+						<ul>
+							<li>filebeat agent via chef</li>
+							<li>the official logging java package</li>
+							<li>or any other method</li>
+						</ul>
+						<aside class="notes">
+							<p>
+								I haven't actually talked about how people send us logs yet. So we have a couple options for everyone. You can send us logs straight to our kafka topic,
+								or since chef is pretty heavily used at UHG you just add our filebeat cookbook to your server's run list. All people need to do is tell our attribute
+								manager where to look for logs and make sure they are formatted correctly. 
+							</p>
+
+							<p>
+								Also we're a pretty heavy Java shop so we actually had one of the internal teams (think contractors but internal) that build us a java package that 
+								handles creating log events and sending them to us. The package will handle converting an ip address from dotted decimal to an integer. It also handles 
+								making the receive time as defined as the milliseconds since the unix epoch. We'll have to revisit this in 2038 but it'll be fine ... probably
+							</p>
+
+							<p>
+								Then finally if you use another language or don't want to use filebeat you'll need to use something else. For some people supporting vendor apps
+								they usually use something like fluentd to do some of the heavier parsing. For our platform logging we do all the parsing and delivery using fluent-bit
+								since it's light weight and can be more easily deployed in our dmz environment.
+							</p>
+						</aside>
+					</section>
+					<section>
+						<h3>Streams Apps</h3>
+						<ul>
+							<li>Lower latency than batch processing</li>
+							<li>Real time metrics on logs coming in</li>
+							<li>Streams run in kubernetes</li>
+							<li>3 types of streams (validation, elastic indexer, and hdfs writer)</li>
+						</ul>
+						<aside class="notes">
+							<p>
+								One of the perks of kafka is that we can start processing things as they get onto the topic. This has lowered our latency from minutes to less than 30 seconds
+								Again the huge benefit to this approach is that you can lower your time to detect something weird happening.
+							</p>
+							<p>
+								Also keeping with the microservices architecture we can limit the blast radius of bad code getting checked in. We have a separate stream that handles validation,
+								and 2 streams that interface with the Security big data lake. We have a stream that writes to elasticsearch for low latency search
+								and another that writes to Hadoop for long term retention. We also have our streams running in kubernetes so we can scale streams out easily.
+							</p>
+						</aside>
+					</section>
+				</section>
+				<section>
+					<section>
+						<h3>Firewall Order of Operations</h3>
+						<ul>
+							<li>do any bootstrapping and non kafka ops</li>
+							<li>add node to firewall rules</li>
+							<li>add node to the kafka cluster</li>
+							<li>optional: rebalance partitions</li>
+						</ul>
+						<aside class="notes">
+							<p>now this is the pain points and tips part of the talk. Here is the obligatory do as I say and not as i did</p>
+							<p>
+								so when running in your org's dmz environment or anything that requires messing with the firewalls is that network
+								connectivity can cause issues.
+								I wasn't aware of that fact so i added a broker to the cluster and figured everything would be fine ... except
+								clients had connectivity issues because that broker was the leader of a partition of a newly created topic.
+							</p>
+
+							<p>
+								Also when operating in your dmz in my environment i can't talk to the public internet at all. So i have to host 
+								a webserver and package all my components (I'm talking node_exporter, kafka, zookeeper, and schema registry, it's a lot)
+							</p>
+						</aside>
+					</section>
+					<section>
+						<h3>Infra and Change Management</h3>
+						<aside class="notes">
+							<p>
+								So supporting a health insurance company, UnitedHealthcare we have a long peak season(open enrollment). 
+								So this causes a lot of headaches if we make changes to firewalls
+								or load balancers we have to wait and work around black out dates. If this describes your org then do as much outside of that season.
+							</p>
+						</aside>
+					</section>
+					<section>
+						<h3>Instrument All the Things!</h3>
+						<aside class="notes">
+							<p>
+								This isn't a pain point but a lesson learned. This has come up in Liz Fong-Jones keynote is that if you don't build in observability
+								you're gonna have a bad time. Currently we are collecting metrics from our streams, kafka brokers, schema registry servers, and zookeeper nodes.
+								We're getting logs from kafka, zookeeper, and schema registry using our own pipeline which is kinda a mixed bag. For example if I mess up the cluster
+								then logs aren't going to make it back. We're still working on getting tracing setup (if you have done this please bug me on twitter or after my talk)
+							</p>
+
+							<p>
+								Another thing we have been using is a heartbeat generator. So we have a couple servers that all they do every 5s with nanosecond precision is send 
+								a message through kafka, and we setup a watcher in elasticsearch. if we are short on logs then elasticsearch sends us an email and we can 
+								triage (most of the time it's just a message took a little too long to process)
+							</p>
+						</aside>
+					</section>
+					<section>
+						<h3>Small team</h3>
+						<aside class="notes">
+							<p>
+								blessing and a curse. on one hand we can talk to each other pretty easily over im but it does mean that we are
+								stretched pretty thin.
+								So since we used to be a team of 4 we don't have an on call rotation (8 by 5 support) since it would just burn us
+								out. Another important
+								thing is be aware of your actual capacity.
+							</p>
+
+							<p>
+								Another thing is to automate everything you can
+							</p>
+						</aside>
+					</section>
+					<section>
+						<h3>No is a complete sentence</h3>
+						<aside class="notes">
+							<p>
+								still riding on the previous point you have to say no to things
+
+								Everyone now and then someone wants a super important feature to be put in right this second, and
+								we have to tell them we can or won't put a feature in or if we put it in it'll be later because we have higher priority things to work on
+								so it helps to have a chain of command that respects your team's autonomy. This is a 100% your milage may vary sort of thing
+							</p>
+						</aside>
+					</section>
+				</section>
+				<section>
+					<h3>Closing and final thoughts</h3>
+					<aside class="notes">
+						<p>
+							So this bit is the important "this is what you tell management and your team"
+						</p>
+
+						<ol>
+							<li>common enterprise wide schema (structured logging is NOT optional)</li>
+							<li>data streaming get all of the logs off the server as soon as you can (get some streams analytics going on)</li>
+							<li>Be patient and get your devs involved this stuff takes time.</li>
+						</ol>
+					</aside>
+				</section>
+				<section>
+					<h3>helpful links</h3>
+					<ul>
+						<li><a href="?print-pdf">deck pdf</a></li>
+						<li><a href="?print-pdf&showNotes=true">deck with speaker notes</a></li>
+						<li>Twitter: @SerenaTiede</li>
+						<li>Github: LadySerena</li>
+					</ul>
+					<aside class="notes">
+						Not a whole lot on my github but I should have the slides up this week
+					</aside>
+				</section>
+			</div>
+		</div>
+
+		<script src="js/reveal.js"></script>
+
+		<script>
+			// More info about config & dependencies:
+			// - https://github.com/hakimel/reveal.js#configuration
+			// - https://github.com/hakimel/reveal.js#dependencies
+			Reveal.initialize({
+				controls: true,
+				progress: true,
+				slideNumber: true,
+				history: true,
+				center: true,
+				transition: 'slide', // none/fade/slide/convex/concave/zoom
+				// More info https://github.com/hakimel/reveal.js#dependencies
+				dependencies: [
+					{ src: 'plugin/highlight/highlight.js', async: true, callback: function () { hljs.initHighlightingOnLoad(); } },
+					{ src: 'plugin/notes/notes.js', async: true }
+				]
+			});
+		</script>
+	</body>
+</html>
